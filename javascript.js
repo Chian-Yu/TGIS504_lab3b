@@ -1,6 +1,6 @@
 alert("This web page is used to collect polygon and point vector and attribute data. The drawing toolbox is on the left side. The pentagon button is used to draw polygon. The marker button is used to draw points. The pen button is for edit and the garbage can is for delete. After finishing your feature, please enter the feature's title and its description.")
 
-var map = L.map('map').setView([23.96, 120.48], 13);
+var map = L.map('map').setView([47.24, -122.43], 13);
 
 L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoiY2hpYW55dSIsImEiOiJja2hjcG5ubXUwMXZ4Mnp0OW93enk5Yjh2In0.PgRvkVtqOFh9ew6lp-BFuw', {
     attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
@@ -11,6 +11,25 @@ L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_toke
 }).addTo(map);
 
 var drawnItems = L.featureGroup().addTo(map);
+
+var cartoData = L.layerGroup().addTo(map);
+var url = "https://chian-yu.carto.com/api/v2/sql";
+var urlGeoJSON = url + "?format=GeoJSON&q=";
+var sqlQuery = "SELECT the_geom, description, name FROM lab_3b_chian";
+function addPopup(feature, layer) {
+    layer.bindPopup(
+        "<b>" + feature.properties.name + "</b><br>" +
+        feature.properties.description
+    );
+}
+
+fetch(urlGeoJSON + sqlQuery)
+    .then(function(response) {
+    return response.json();
+    })
+    .then(function(data) {
+        L.geoJSON(data, {onEachFeature: addPopup}).addTo(cartoData);
+    });
 
 new L.Control.Draw({
     draw : {
@@ -29,8 +48,8 @@ new L.Control.Draw({
 function createFormPopup() {
     var popupContent =
         '<form>' +
-        'Feature\'s Title:<br><input type="text" id="input_desc"><br>' +
-        'Description:<br><input type="text" id="input_name"><br>' +
+        'Feature\'s Title:<br><input type="text" id="input_name"><br>' +
+        'Description:<br><input type="text" id="input_desc"><br>' +
         '<input type="button" value="Submit" id="submit">' +
         '</form>'
     drawnItems.bindPopup(popupContent).openPopup();
@@ -49,15 +68,45 @@ function setData(e) {
         var enteredUsername = document.getElementById("input_name").value;
         var enteredDescription = document.getElementById("input_desc").value;
 
-        // Print user name and description
-        console.log(enteredUsername);
-        console.log(enteredDescription);
-
-        // Get and print GeoJSON for each drawn layer
+        // For each drawn layer
         drawnItems.eachLayer(function(layer) {
+
+			// Create SQL expression to insert layer
             var drawing = JSON.stringify(layer.toGeoJSON().geometry);
-            console.log(drawing);
-        });
+            var sql =
+                "INSERT INTO lab_3b_chian (the_geom, name, description) " +
+                "VALUES (ST_SetSRID(ST_GeomFromGeoJSON('" +
+                drawing + "'), 4326), '" +
+                enteredUsername + "', '" +
+                enteredDescription + "')";
+            console.log(sql);
+
+            // Send the data
+            fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: "q=" + encodeURI(sql)
+            })
+            .then(function(response) {
+                return response.json();
+            })
+            .then(function(data) {
+                console.log("Data saved:", data);
+            })
+            .catch(function(error) {
+                console.log("Problem saving the data:", error);
+            });
+
+        // Transfer submitted drawing to the CARTO layer
+        //so it persists on the map without you having to refresh the page
+        var newData = layer.toGeoJSON();
+        newData.properties.description = enteredDescription;
+        newData.properties.name = enteredUsername;
+        L.geoJSON(newData, {onEachFeature: addPopup}).addTo(cartoData);
+
+    });
 
         // Clear drawn items layer
         drawnItems.closePopup();
